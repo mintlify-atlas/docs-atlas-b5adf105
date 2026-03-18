@@ -5,6 +5,8 @@ description: "Endpoints for authentication, session management, and user listing
 
 The Auth API handles user login, session validation, and logout. Most endpoints under `/auth` are publicly accessible. Session state is maintained via an HttpOnly cookie set on login.
 
+All error responses follow the shape `{ ok: false, message: string, code: string }` with the appropriate HTTP status code.
+
 ## Session cookie
 
 A successful login sets a `tooltify_session` cookie on the response. All protected endpoints read this cookie to identify the caller.

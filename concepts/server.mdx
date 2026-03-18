@@ -103,17 +103,20 @@ All routes are mounted under the root path by `createRouter()`.
 export function createRouter(deps: RouterDeps): express.Router
 ```
 
-The router applies `express.json({ limit: "10mb" })` globally and uses `sessionGuard` middleware to protect the `/editor` and `/build` prefixes.
+The router applies `express.json({ limit: "10mb" })` globally and uses `sessionGuard` middleware to protect the `/editor` and `/build` prefixes. The guard reads the `tooltify_session` cookie from the `Cookie` header and validates the JWT against `AuthService`.
 
 | Route prefix | Auth | Description |
 |--------------|------|-------------|
-| `POST /auth/login` | None | Exchange credentials for a JWT session token |
-| `GET /auth/me` | Optional | Returns current session user if logged in |
+| `GET /auth/ping` | None | Health check — returns `{ message: "pong" }` |
+| `GET /auth/users` | None | List registered usernames |
+| `POST /auth/login` | None | Exchange credentials for a JWT session cookie |
+| `GET /auth/session` | Cookie | Returns the current session user if authenticated |
+| `GET /auth/logout` | None | Clears the session cookie |
 | `GET /editor/read` | `sessionGuard` | Read a source file |
 | `POST /editor/save` | `sessionGuard` | Write content to a source file |
-| `POST /editor/open` | `sessionGuard` | Open a file in the developer's IDE via the agent |
+| `GET /editor/open` | `sessionGuard` | Open a file in the developer's IDE via the agent |
 | `GET /build/status` | `sessionGuard` | Return the last `BuildResult` |
-| `GET /build/info/:hash` | `sessionGuard` | Return `RebuildInfo` for a specific build hash |
+| `GET /build/user?h=` | `sessionGuard` | Return `RebuildInfo` for a specific build hash |
 
 ## WebSocket namespaces
 
@@ -139,7 +142,7 @@ function initSocket(
 ### `/builds` namespace
 
 - **Direction**: server → browser (events)
-- **Auth middleware**: `AuthService.jwtVerify()` on the handshake `auth.token`
+- **Auth middleware**: Reads the `tooltify_session` cookie from the handshake headers and verifies the JWT via `AuthService.jwtVerify()`
 - **On connect**: the current `BuildResult` is immediately emitted as a `status` event so the client can initialise its UI without waiting for the next build
 
 ## CORS configuration

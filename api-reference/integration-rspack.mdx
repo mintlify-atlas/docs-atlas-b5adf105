@@ -126,42 +126,43 @@ function rspackTooltify(options?: RspackStartOptions): RspackPluginInstance
 
 ## Usage example
 
-```typescript
-// rspack.config.ts
-import { defineConfig } from '@rspack/cli';
-import { rspackTooltify } from '@tooltify/integration-rspack';
+```typescript rspack.config.ts
+import { HtmlRspackPlugin } from "@rspack/core";
+import { rspackTooltify } from "@tooltify/integration-rspack";
 
-export default defineConfig({
-  entry: './src/index.tsx',
+export default {
+  entry: "./src/index.tsx",
   plugins: [
+    new HtmlRspackPlugin({ template: "./index.html" }),
     rspackTooltify(),
   ],
-});
+};
 ```
 
-```typescript
-// rspack.config.ts — with all options
-import { defineConfig } from '@rspack/cli';
-import { rspackTooltify } from '@tooltify/integration-rspack';
+```typescript rspack.config.ts — with all options
+import { HtmlRspackPlugin } from "@rspack/core";
+import { rspackTooltify } from "@tooltify/integration-rspack";
 
-export default defineConfig({
-  entry: './src/index.tsx',
+export default {
+  entry: "./src/index.tsx",
   plugins: [
+    new HtmlRspackPlugin({ template: "./index.html" }),
     rspackTooltify({
       // Use a custom URL if running behind a reverse proxy
-      publicUrl: 'https://dev.example.internal',
+      publicUrl: "https://dev.example.internal",
 
       react: {
-        // Limit source injection to native HTML elements only
-        shouldInjectSource: (type, _props) => typeof type === 'string',
+        // Inject source only for styled-components (objects with a string "target" property)
+        shouldInjectSource: (type) =>
+          typeof type === "object" && typeof type?.target === "string",
       },
     }),
   ],
-});
+};
 ```
 
 <Info>
-  The plugin only modifies development builds. It is safe to include
+  The plugin is intended for development builds only. It is safe to include
   unconditionally — Rspack's watch/dev-server mode is required for the
   file-change tracking to emit events.
 </Info>

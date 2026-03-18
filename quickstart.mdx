@@ -127,25 +127,25 @@ description: "Get Tooltify running in your React app in under 5 minutes."
     ```
     ◆  Tooltify Agent Manager
     │
-    ◆  What would you like to do? (alice)
-    │  ○ Start agent
-    │  ○ Stop agent
-    │  ○ Agent status
-    │  ○ View logs
-    │  ○ Reset password
+    ◆  What do you want to do?
+    │  ● Start agent (alice)
+    │    Stop agent (alice)
+    │    Reset password (alice)
+    │    View status
+    │    View logs
     └
     ```
 
-    Select **Start agent**. On first run, you will be prompted to set a password. Then choose your IDE (VS Code or Antigravity) and whether you are connecting remotely.
+    Select **Start agent (alice)**. On first run, you will be prompted to set a password. Then choose your IDE (VS Code or Antigravity) and whether you are connecting remotely.
 
     Once started, the agent runs as a background daemon and reconnects automatically if the server restarts.
   </Step>
 
   <Step title="Open your app in the browser">
-    Start your Rspack dev server:
+    Start your Rspack dev server (adjust the command to match your project setup):
 
     ```bash
-    npx rspacked serve
+    npx rspack serve
     ```
 
     Open `http://localhost:5173` (or your configured dev server port). The Tooltify devtools panel is now embedded in your app. Click any element to inspect its source location and open it directly in your IDE.

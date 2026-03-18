@@ -132,21 +132,25 @@ Once connected, the server registers the socket in its in-memory `agents` map an
 
 ## Starting the agent
 
-The `tooltify` CLI reads the following environment variables to configure `AgentWebsocket`:
+The `tooltify` CLI reads the following environment variables when spawning the agent daemon process:
 
 | Variable | Maps to | Description |
 |----------|---------|-------------|
-| `AGENT_NAME` | `agentName` | Unique name for this agent connection |
+| `AGENT_NAME` | `agentName` | Unique name for this agent connection (set to the OS username) |
 | `IDE_TYPE` | `ideType` | `vscode` or `antigravity` |
 | `AGENT_HASH` | `hash` (in JWT payload) | Hash stored in VaultService for session binding |
 | `REMOTE` | `remote` | Set to `"true"` for remote IDE server mode |
 
 <Steps>
-  <Step title="Log in">
-    Run `tooltify login` to authenticate with the server. The CLI stores a signed JWT in the local config.
+  <Step title="Run the CLI">
+    Run `tooltify` from the project root. The CLI verifies that `tooltify.config.json` exists, then shows the interactive menu.
+
+    ```bash
+    npx tooltify
+    ```
   </Step>
-  <Step title="Start the daemon">
-    Run `tooltify start` (or `tooltify` with no arguments). The CLI reads your config, constructs `AgentWebsocketOptions`, and calls `agent.start()`.
+  <Step title="Select Start agent">
+    Choose **Start agent (username)** from the menu. On first run you will be prompted to register a password. Then select your IDE and whether your editor is running remotely.
   </Step>
   <Step title="Stay connected">
     The agent reconnects automatically if the connection drops. Reconnection delay starts at 1 second and backs off to a maximum of 10 seconds.

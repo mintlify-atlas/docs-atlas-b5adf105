@@ -114,7 +114,7 @@ This is the configuration used by the Tooltify playground:
 
 ## Configuration and the bundler plugin
 
-The Tooltify server reads `tooltify.config.json` directly. The bundler plugin (`rspackTooltify`) reads the same config file at build time to determine the server URL it injects into your app.
+The bundler plugin (`rspackTooltify`) calls `startServer()` from `@tooltify/core`, which reads `tooltify.config.json` from `process.cwd()` at startup. The server URL injected into the page (`window.__TOOLTIFY_URL__`) is derived from the `port` field read at that moment.
 
 If you change `port` in `tooltify.config.json`, restart both the Tooltify agent and your dev server so the new port is picked up everywhere.
 

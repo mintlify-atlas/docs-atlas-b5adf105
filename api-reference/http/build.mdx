@@ -171,7 +171,7 @@ curl "https://your-tooltify-host/build/user?h=a1b2c3d4" \
 Real-time build updates are emitted to all connected clients on the `/builds` Socket.IO namespace.
 
 <Warning>
-The `/builds` namespace requires authentication. Connect with the `tooltify_session` cookie present in the handshake headers, or the connection will be rejected.
+The `/builds` namespace requires authentication. The server reads the `tooltify_session` cookie from the WebSocket handshake headers. Pass `withCredentials: true` when connecting so the browser sends the cookie automatically.
 </Warning>
 
 ### Connecting
@@ -179,7 +179,7 @@ The `/builds` namespace requires authentication. Connect with the `tooltify_sess
 ```javascript example
 import { io } from "socket.io-client";
 
-const socket = io("https://your-tooltify-host/builds", {
+const socket = io("http://localhost:4100/builds", {
   withCredentials: true, // sends the tooltify_session cookie
 });
 ```

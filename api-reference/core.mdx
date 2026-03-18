@@ -63,8 +63,8 @@ const { config, port, buildTracker, agentWs, cleanDeps } = startServer();
       the config file.
     </ResponseField>
 
-    <ResponseField name="host" type="string" required>
-      Hostname for the server.
+    <ResponseField name="host" type="string">
+      Hostname for the server. Optional.
     </ResponseField>
 
     <ResponseField name="packagesDir" type="string" required>
@@ -170,8 +170,8 @@ The shape of `tooltify.config.json`. All fields are required unless noted.
   Port the Tooltify server listens on. Defaults to `4100` when omitted.
 </ParamField>
 
-<ParamField path="host" type="string" required>
-  Hostname for the server (e.g. `"localhost"`).
+<ParamField path="host" type="string">
+  Hostname for the server (e.g. `"localhost"`). Optional.
 </ParamField>
 
 <ParamField path="packagesDir" type="string" required>

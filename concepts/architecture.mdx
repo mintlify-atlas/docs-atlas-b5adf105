@@ -41,7 +41,7 @@ Tooltify is made up of three cooperating pieces: a **Node.js HTTP/WebSocket serv
     The Tooltify client reads the `data-source` attribute that the custom JSX runtime attached to the DOM element. The value is a relative path and line number, e.g. `src/App.tsx:12`.
   </Step>
   <Step title="HTTP request to the server">
-    The client sends an authenticated request to `POST /editor/open` carrying the source path. The session cookie (JWT) identifies which developer made the request.
+    The client sends an authenticated request to `GET /editor/open?source=<path>` carrying the source path. The session cookie (JWT) identifies which developer made the request.
   </Step>
   <Step title="Server dispatches a command">
     `EditorService.openSource()` resolves the absolute path and emits an `OPEN_EDITOR` command over the `/agent` WebSocket namespace to the socket registered under the user's agent name.
@@ -67,7 +67,7 @@ Used exclusively for **server → agent** communication. Each connected agent re
 
 Used for **server → browser** build status streaming. Any authenticated browser client can subscribe to receive real-time rebuild and completion events.
 
-- **Auth**: session JWT verified by `AuthService`.
+- **Auth**: `tooltify_session` cookie in the handshake headers, verified via `AuthService.jwtVerify()`.
 - **Events**: `rebuild` (`RebuildInfo`), `done` (`BuildResult`), `status` (current `BuildResult` on connection)
 
 ## HTTP routes
