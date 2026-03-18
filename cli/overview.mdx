@@ -1,0 +1,81 @@
+---
+title: "CLI overview"
+description: "Manage the Tooltify local desktop agent daemon from your terminal using the tooltify CLI."
+---
+
+The `tooltify` CLI lets you start, stop, and inspect the Tooltify desktop agent daemon that runs on your local machine. It is an interactive, menu-driven tool — you run it once, pick an action, and it walks you through any required inputs.
+
+## Installation
+
+The CLI ships with `@tooltify/core`. Install it globally or use `npx`:
+
+```bash
+# Global install
+npm install -g @tooltify/core
+
+# Or run without installing
+npx @tooltify/core
+```
+
+After a global install, the binary is available as `tooltify`.
+
+## Prerequisites
+
+<Warning>
+  You must run `tooltify` from a directory that contains a `tooltify.config.json` file. If the file is not found, the CLI exits with an error before showing the menu.
+</Warning>
+
+The CLI reads project configuration (including the auth salt and registered users) from `tooltify.config.json` in your working directory. Make sure you `cd` into the project root before running any command.
+
+## How it works
+
+When you run `tooltify`, it:
+
+<Steps>
+  <Step title="Verify the project">
+    Checks for `tooltify.config.json` in the current directory.
+  </Step>
+  <Step title="Show the interactive menu">
+    Prompts you to select an action. Your OS username (from `os.userInfo().username`) is used as the agent name and shown next to relevant menu items.
+  </Step>
+  <Step title="Run the selected command">
+    Executes the action — some commands prompt for additional input before proceeding.
+  </Step>
+</Steps>
+
+### Example session
+
+```bash
+$ tooltify
+◆  Tooltify Agent Manager
+│
+◆  What do you want to do?
+│  ● Start agent (alice)
+│    Stop agent (alice)
+│    Reset password (alice)
+│    View status
+│    View logs
+└
+```
+
+Press `Ctrl+C` at any prompt to cancel the current operation and exit cleanly.
+
+## Available actions
+
+<CardGroup cols={2}>
+  <Card title="start" icon="play" href="/cli/commands#start">
+    Register credentials (first run only), configure the editor and remote settings, and spawn the agent daemon.
+  </Card>
+  <Card title="stop" icon="square" href="/cli/commands#stop">
+    Stop the running agent daemon for the current user.
+  </Card>
+  <Card title="status" icon="circle-dot" href="/cli/commands#status">
+    List all registered agents and whether each one is currently running.
+  </Card>
+  <Card title="logs" icon="scroll" href="/cli/commands#logs">
+    Tail the live log output for a selected agent.
+  </Card>
+  <Card title="reset-password" icon="key" href="/cli/commands#reset-password">
+    Change the agent user's password and restart the daemon if it is running.
+  </Card>
+</CardGroup>

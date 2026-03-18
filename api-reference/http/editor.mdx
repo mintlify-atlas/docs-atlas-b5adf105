@@ -1,0 +1,197 @@
+---
+title: "Editor API"
+description: "Endpoints for reading files, saving changes, and opening files in the IDE under the /editor base path."
+---
+
+The Editor API exposes file-system operations scoped to the `packagesDir` configured in `tooltify.config.json`. All paths are **relative to that directory**.
+
+<Warning>
+Every endpoint under `/editor` requires a valid `tooltify_session` cookie. Requests without an active session return `401 NO_SESSION`.
+</Warning>
+
+## Path resolution
+
+- All `path` and `source` parameters are resolved relative to `packagesDir`.
+- The server rejects any path that escapes `packagesDir` using `..` traversal or similar techniques.
+- Attempts to access files outside `packagesDir` return `403 INVALID_PATH`.
+
+---
+
+## GET /editor/read
+
+Reads the content of a source file.
+
+### Query parameters
+
+<ParamField query="path" type="string" required>
+  Relative path to the file from `packagesDir`. Example: `my-package/src/index.ts`
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"File read successfully"`
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="content" type="string" required>
+      Full UTF-8 text content of the file.
+    </ResponseField>
+    <ResponseField name="ext" type="string" required>
+      File extension without the leading dot (e.g. `"ts"`, `"json"`, `"mdx"`).
+    </ResponseField>
+    <ResponseField name="path" type="string" required>
+      The relative path as supplied in the request.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash curl example
+curl "https://your-tooltify-host/editor/read?path=my-package/src/index.ts" \
+  -b cookies.txt
+```
+
+```json 200
+{
+  "message": "File read successfully",
+  "data": {
+    "content": "export const hello = () => 'world';\n",
+    "ext": "ts",
+    "path": "my-package/src/index.ts"
+  }
+}
+```
+
+### Error codes
+
+| Status | Code             | Reason                                          |
+| ------ | ---------------- | ----------------------------------------------- |
+| 400    | `MISSING_PARAM`  | `path` query parameter not provided.            |
+| 401    | `NO_SESSION`     | Missing or invalid session cookie.              |
+| 403    | `INVALID_PATH`   | Path resolves outside `packagesDir`.            |
+| 404    | `FILE_NOT_FOUND` | File does not exist at the resolved path.       |
+
+---
+
+## POST /editor/save
+
+Writes new content to an existing file. The file must already exist within `packagesDir`.
+
+<Note>
+The server enforces a 10 MB request body limit across all API routes.
+</Note>
+
+### Request body
+
+<ParamField body="path" type="string" required>
+  Relative path to the file to write, from `packagesDir`. Example: `my-package/src/index.ts`
+</ParamField>
+
+<ParamField body="content" type="string" required>
+  Full file content to write. Must be a string (empty string is allowed).
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"File saved successfully"`
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="written" type="number" required>
+      Number of bytes written to disk.
+    </ResponseField>
+    <ResponseField name="fullPath" type="string" required>
+      Absolute filesystem path of the written file.
+    </ResponseField>
+    <ResponseField name="user" type="string" required>
+      Username of the session that performed the write.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash curl example
+curl -X POST https://your-tooltify-host/editor/save \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"path": "my-package/src/index.ts", "content": "export const hello = () => \'world\';\n"}'
+```
+
+```json 200
+{
+  "message": "File saved successfully",
+  "data": {
+    "written": 38,
+    "fullPath": "/srv/tooltify/packages/my-package/src/index.ts",
+    "user": "alice"
+  }
+}
+```
+
+### Error codes
+
+| Status | Code            | Reason                                        |
+| ------ | --------------- | --------------------------------------------- |
+| 400    | `MISSING_PARAM` | `path` or `content` field missing from body.  |
+| 401    | `NO_SESSION`    | Missing or invalid session cookie.            |
+| 403    | `INVALID_PATH`  | Path resolves outside `packagesDir`.          |
+| 500    | `WRITE_ERROR`   | Filesystem error while writing the file.      |
+
+---
+
+## GET /editor/open
+
+Instructs the IDE agent to open a file, optionally at a specific line number. The command is dispatched to the agent over the internal WebSocket connection — the response confirms the command was sent, not that the editor has finished opening.
+
+### Query parameters
+
+<ParamField query="source" type="string" required>
+  File to open. Accepted formats:
+  - `relPath` — opens the file with no specific line selected.
+  - `relPath:lineNumber` — opens the file and jumps to the given line.
+
+  Example: `my-package/src/index.ts:42`
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"Editor opened"`
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="opened" type="string" required>
+      The resolved absolute path (with optional `:lineNumber` suffix) dispatched to the agent.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash curl example — open at a specific line
+curl "https://your-tooltify-host/editor/open?source=my-package/src/index.ts:42" \
+  -b cookies.txt
+```
+
+```bash curl example — open without line
+curl "https://your-tooltify-host/editor/open?source=my-package/src/index.ts" \
+  -b cookies.txt
+```
+
+```json 200
+{
+  "message": "Editor opened",
+  "data": {
+    "opened": "/srv/tooltify/packages/my-package/src/index.ts:42"
+  }
+}
+```
+
+### Error codes
+
+| Status | Code            | Reason                                      |
+| ------ | --------------- | ------------------------------------------- |
+| 400    | `MISSING_PARAM` | `source` query parameter not provided.      |
+| 401    | `NO_SESSION`    | Missing or invalid session cookie.          |
+| 403    | `INVALID_PATH`  | Path resolves outside `packagesDir`.        |

@@ -1,0 +1,264 @@
+---
+title: "Build API"
+description: "HTTP endpoints and WebSocket events for monitoring build state and per-user rebuild history under the /build base path."
+---
+
+The Build API surfaces the current build status and per-build history tracked by the server. Real-time updates are pushed over the `/builds` Socket.IO namespace.
+
+<Warning>
+Every HTTP endpoint under `/build` requires a valid `tooltify_session` cookie. Requests without an active session return `401 NO_SESSION`.
+</Warning>
+
+## BuildResult object
+
+Both HTTP endpoints and the `"done"` WebSocket event return a `BuildResult`:
+
+<ResponseField name="ok" type="boolean" required>
+  `true` when the build succeeded, `false` when it produced errors.
+</ResponseField>
+
+<ResponseField name="hash" type="string">
+  Unique identifier for the build. Present on all completed builds.
+</ResponseField>
+
+<ResponseField name="user" type="string" required>
+  Username of the contributor whose file change triggered the rebuild.
+</ResponseField>
+
+<ResponseField name="file" type="string" required>
+  Absolute path of the file that triggered the rebuild.
+</ResponseField>
+
+<ResponseField name="errors" type="string[]">
+  List of error messages from the build tool. Present only when `ok` is `false`.
+</ResponseField>
+
+<ResponseField name="errorFiles" type="object[]">
+  Files associated with build errors, with the contributor who last wrote each file.
+  <Expandable title="properties">
+    <ResponseField name="file" type="string" required>
+      Absolute path of the file containing the error.
+    </ResponseField>
+    <ResponseField name="user" type="string" required>
+      Username of the contributor who last wrote this file.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## GET /build/status
+
+Returns the result of the most recently completed build.
+
+### Response
+
+Returns a [`BuildResult`](#buildresult-object) for the last completed build. On a freshly started server with no completed builds the fields default to `ok: true`, `user: "unknown"`, and an empty `file`.
+
+```bash curl example
+curl https://your-tooltify-host/build/status \
+  -b cookies.txt
+```
+
+```json 200 — successful build
+{
+  "ok": true,
+  "hash": "a1b2c3d4",
+  "user": "alice",
+  "file": "/srv/tooltify/packages/my-package/src/index.ts",
+  "errors": [],
+  "errorFiles": []
+}
+```
+
+```json 200 — failed build
+{
+  "ok": false,
+  "hash": "e5f6a7b8",
+  "user": "bob",
+  "file": "/srv/tooltify/packages/my-package/src/broken.ts",
+  "errors": ["TS2345: Argument of type 'number' is not assignable to parameter of type 'string'."],
+  "errorFiles": [
+    {
+      "file": "/srv/tooltify/packages/my-package/src/broken.ts",
+      "user": "bob"
+    }
+  ]
+}
+```
+
+### Error codes
+
+| Status | Code         | Reason                             |
+| ------ | ------------ | ---------------------------------- |
+| 401    | `NO_SESSION` | Missing or invalid session cookie. |
+
+---
+
+## GET /build/user
+
+Looks up the rebuild info recorded for a specific build hash. Useful for retrieving the contributor and files associated with a past build.
+
+<Note>
+The server retains history for the last 20 builds. Requesting a hash that has been evicted returns a default `{ user: "unknown", file: "" }` response rather than an error.
+</Note>
+
+### Query parameters
+
+<ParamField query="h" type="string" required>
+  Build hash returned by a previous `BuildResult` (the `hash` field).
+</ParamField>
+
+### Response
+
+Returns a `RebuildInfo` object for the requested hash, or `{ user: "unknown", file: "" }` when the hash is not found.
+
+<ResponseField name="user" type="string" required>
+  Username of the contributor whose change triggered the rebuild.
+</ResponseField>
+
+<ResponseField name="file" type="string" required>
+  Absolute path of the file that triggered the rebuild.
+</ResponseField>
+
+<ResponseField name="errors" type="string[]">
+  Build errors recorded for this hash, if any.
+</ResponseField>
+
+<ResponseField name="errorFiles" type="object[]">
+  Files with errors for this build, with their associated contributors.
+  <Expandable title="properties">
+    <ResponseField name="file" type="string" required>
+      Absolute path of the file containing the error.
+    </ResponseField>
+    <ResponseField name="user" type="string" required>
+      Username of the contributor who last wrote this file.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash curl example
+curl "https://your-tooltify-host/build/user?h=a1b2c3d4" \
+  -b cookies.txt
+```
+
+```json 200 — found
+{
+  "user": "alice",
+  "file": "/srv/tooltify/packages/my-package/src/index.ts",
+  "errors": [],
+  "errorFiles": []
+}
+```
+
+```json 200 — not found / evicted
+{
+  "user": "unknown",
+  "file": ""
+}
+```
+
+### Error codes
+
+| Status | Code         | Reason                             |
+| ------ | ------------ | ---------------------------------- |
+| 401    | `NO_SESSION` | Missing or invalid session cookie. |
+
+---
+
+## WebSocket — /builds namespace
+
+Real-time build updates are emitted to all connected clients on the `/builds` Socket.IO namespace.
+
+<Warning>
+The `/builds` namespace requires authentication. Connect with the `tooltify_session` cookie present in the handshake headers, or the connection will be rejected.
+</Warning>
+
+### Connecting
+
+```javascript example
+import { io } from "socket.io-client";
+
+const socket = io("https://your-tooltify-host/builds", {
+  withCredentials: true, // sends the tooltify_session cookie
+});
+```
+
+### Events emitted by the server
+
+#### `status`
+
+Emitted immediately on connection with the result of the last completed build.
+
+**Payload:** [`BuildResult`](#buildresult-object)
+
+```json example payload
+{
+  "ok": true,
+  "hash": "a1b2c3d4",
+  "user": "alice",
+  "file": "/srv/tooltify/packages/my-package/src/index.ts",
+  "errors": [],
+  "errorFiles": []
+}
+```
+
+#### `rebuild`
+
+Emitted when the build tool detects a file change and begins rebuilding. Delivered before the build result is known.
+
+**Payload:** `RebuildInfo` — a subset of `BuildResult` without `ok` or `hash`.
+
+| Field  | Type     | Description                                           |
+| ------ | -------- | ----------------------------------------------------- |
+| `user` | `string` | Contributor whose file change triggered the rebuild.  |
+| `file` | `string` | Absolute path of the changed file.                   |
+
+```json example payload
+{
+  "user": "bob",
+  "file": "/srv/tooltify/packages/my-package/src/util.ts"
+}
+```
+
+#### `done`
+
+Emitted when a build completes, whether successful or not.
+
+**Payload:** [`BuildResult`](#buildresult-object)
+
+```json example payload — build failed
+{
+  "ok": false,
+  "hash": "e5f6a7b8",
+  "user": "bob",
+  "file": "/srv/tooltify/packages/my-package/src/util.ts",
+  "errors": ["TS2304: Cannot find name 'foo'."],
+  "errorFiles": [
+    {
+      "file": "/srv/tooltify/packages/my-package/src/util.ts",
+      "user": "bob"
+    }
+  ]
+}
+```
+
+### Listening example
+
+```javascript example
+socket.on("status", (result) => {
+  console.log("Last build:", result.ok ? "success" : "failed");
+});
+
+socket.on("rebuild", (info) => {
+  console.log(`Rebuilding — triggered by ${info.user} (${info.file})`);
+});
+
+socket.on("done", (result) => {
+  if (result.ok) {
+    console.log(`Build ${result.hash} succeeded.`);
+  } else {
+    console.error("Build errors:", result.errors);
+  }
+});
+```

@@ -1,0 +1,163 @@
+---
+title: "Agent"
+description: "The desktop daemon that receives commands from the Tooltify server and opens files in your IDE."
+---
+
+The **agent** is a Node.js daemon that runs on the developer's machine alongside their IDE. It connects to the Tooltify server over a persistent WebSocket, waits for `OPEN_EDITOR` commands, and executes the appropriate shell command to open the target file at the correct line.
+
+You start the agent with the `tooltify` CLI. The CLI reads environment variables (or `tooltify.config.json`) to determine which IDE to target and how to authenticate with the server.
+
+## `AgentWebsocket`
+
+`AgentWebsocket` is the class responsible for managing the Socket.IO client connection to the `/agent` namespace on the Tooltify server.
+
+```typescript
+// core/agent/agent-websocket.ts
+class AgentWebsocket {
+  constructor({ agentName, port, ideType, remote, token }: AgentWebsocketOptions)
+  start(): void
+}
+```
+
+### Constructor options
+
+<ParamField path="options.agentName" type="string" required>
+  A unique name that identifies this agent on the server. The server routes IDE-open commands to the socket registered under this name. Typically set to the developer's username.
+</ParamField>
+
+<ParamField path="options.port" type="number" required>
+  The port the Tooltify server is listening on. The agent connects to `http://localhost:{port}/agent`.
+</ParamField>
+
+<ParamField path="options.ideType" type="IDEType" required>
+  Which IDE to open files in. See [IDE types](#ide-types) below.
+</ParamField>
+
+<ParamField path="options.remote" type="boolean" required>
+  Set to `true` when the IDE is running as a remote server (e.g. VS Code Server). On Linux this triggers IPC socket discovery so the CLI socket path is resolved at runtime rather than passed directly.
+</ParamField>
+
+<ParamField path="options.token" type="string" required>
+  A signed JWT used to authenticate with the `/agent` WebSocket namespace. The token payload must contain `agentName` and `hash` and be signed with the server's shared `secret`.
+</ParamField>
+
+## IDE types
+
+The `IDEType` union determines which binary and goto-flag the agent uses when building the shell command.
+
+```typescript
+// core/common/types/ide.types.ts
+type IDEType = "vscode" | "antigravity"
+```
+
+| Value | IDE |
+|-------|-----|
+| `"vscode"` | Visual Studio Code (or any VS Code-compatible fork) |
+| `"antigravity"` | Antigravity IDE |
+
+## `CommandFactory` and OS adapters
+
+`CommandFactory.create()` selects the right OS-specific adapter based on `process.platform` and returns an `ICommandAdapter` instance.
+
+```typescript
+// core/agent/command-factory/index.ts
+class CommandFactory {
+  static create({ ide, os, remote }: CommandFactoryOptions): ICommandAdapter
+}
+
+interface CommandFactoryOptions {
+  ide: IDEType
+  os: string     // process.platform value
+  remote: boolean
+}
+```
+
+Three adapters are bundled:
+
+| OS value | Adapter class | Notes |
+|----------|---------------|-------|
+| `"linux"` | `LinuxCommandAdapter` | Discovers the IDE's IPC socket at runtime when `remote: true` |
+| `"darwin"` | `DarwinCommandAdapter` | Extends `LinuxCommandAdapter` — identical behaviour |
+| `"win32"` | `WindowsCommandAdapter` | Invokes the IDE binary directly; no IPC discovery |
+
+If `os` does not match one of these keys, `CommandFactory.create()` throws `Error: Unsupported OS: {os}`.
+
+<Note>
+  `DarwinCommandAdapter` extends `LinuxCommandAdapter` without overrides. On macOS, the IPC discovery logic runs but is a no-op when `remote` is `false`.
+</Note>
+
+## The `OPEN_EDITOR` command
+
+The only action currently supported is `OPEN_EDITOR`.
+
+```typescript
+// core/common/types/agent-ws.types.ts
+enum CommandActions {
+  OPEN_EDITOR = "OPEN_EDITOR",
+}
+
+interface AgentCommand {
+  action: CommandActions
+  payload?: {
+    path?: string   // absolute path, optionally with ":line" suffix
+  }
+}
+```
+
+When the agent receives a `command` event with `action: "OPEN_EDITOR"`, it calls `commandAdapter.openEditor(payload.path)` to build the shell command string, then runs it with `child_process.exec()`.
+
+Example shell command produced on Linux with VS Code (remote mode):
+
+```bash
+VSCODE_IPC_HOOK_CLI=$(for pid in $(pgrep -f "vscode-server"); ...) $(which code) --goto "/home/user/project/src/App.tsx:42"
+```
+
+## JWT authentication
+
+The agent authenticates with the server by passing a `token` in the Socket.IO handshake `auth` object:
+
+```typescript
+io(`http://localhost:${port}/agent`, {
+  auth: { token },
+})
+```
+
+The server's `/agent` namespace middleware (`agent.ts`) verifies the token with `jwt.verify(token, secret)` and extracts `agentName` and `hash` from the payload. A missing or invalid token causes the connection to be rejected immediately with `"Missing token"` or `"Invalid token"`.
+
+Once connected, the server registers the socket in its in-memory `agents` map and stores the `hash` in `VaultService`. When the agent disconnects, both entries are removed.
+
+<Warning>
+  The token is generated by the server (via the CLI login flow) and must be kept secret. Anyone with the token can connect as the named agent and receive file-open commands.
+</Warning>
+
+## Starting the agent
+
+The `tooltify` CLI reads the following environment variables to configure `AgentWebsocket`:
+
+| Variable | Maps to | Description |
+|----------|---------|-------------|
+| `AGENT_NAME` | `agentName` | Unique name for this agent connection |
+| `IDE_TYPE` | `ideType` | `vscode` or `antigravity` |
+| `AGENT_HASH` | `hash` (in JWT payload) | Hash stored in VaultService for session binding |
+| `REMOTE` | `remote` | Set to `"true"` for remote IDE server mode |
+
+<Steps>
+  <Step title="Log in">
+    Run `tooltify login` to authenticate with the server. The CLI stores a signed JWT in the local config.
+  </Step>
+  <Step title="Start the daemon">
+    Run `tooltify start` (or `tooltify` with no arguments). The CLI reads your config, constructs `AgentWebsocketOptions`, and calls `agent.start()`.
+  </Step>
+  <Step title="Stay connected">
+    The agent reconnects automatically if the connection drops. Reconnection delay starts at 1 second and backs off to a maximum of 10 seconds.
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    See how the agent fits into the full Tooltify data flow.
+  </Card>
+  <Card title="Server" icon="server" href="/concepts/server">
+    Learn about the `/agent` WebSocket namespace the daemon connects to.
+  </Card>
+</CardGroup>

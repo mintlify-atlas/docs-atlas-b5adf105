@@ -1,0 +1,116 @@
+---
+title: "Architecture"
+description: "How Tooltify's server, client bundle, and desktop agent fit together."
+---
+
+Tooltify is made up of three cooperating pieces: a **Node.js HTTP/WebSocket server**, a **client bundle** injected into your app's HTML, and a **desktop agent** daemon running on the developer's machine. Together they form a closed loop from browser interaction to IDE action.
+
+## System overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      Browser                            │
+│  React app + tooltify.js client bundle                  │
+│  (elements tagged with data-source attributes)          │
+└───────────────┬────────────────────┬────────────────────┘
+                │ HTTP               │ WebSocket (/builds)
+                ▼                    ▼
+┌─────────────────────────────────────────────────────────┐
+│                @tooltify/core server                    │
+│  Express + Socket.IO                                    │
+│                                                         │
+│  HTTP routes          WS namespaces                     │
+│  /auth                /agent   ← agent commands         │
+│  /editor              /builds  ← build status events    │
+│  /build                                                 │
+└───────────────────────────────┬─────────────────────────┘
+                                │ WebSocket (/agent)
+                                ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Desktop agent (daemon)                 │
+│  AgentWebsocket — receives AgentCommand messages        │
+│  CommandFactory — translates to OS/IDE shell commands   │
+│  exec() → opens file in VS Code / Antigravity           │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Data flow
+
+<Steps>
+  <Step title="Element click in the browser">
+    The Tooltify client reads the `data-source` attribute that the custom JSX runtime attached to the DOM element. The value is a relative path and line number, e.g. `src/App.tsx:12`.
+  </Step>
+  <Step title="HTTP request to the server">
+    The client sends an authenticated request to `POST /editor/open` carrying the source path. The session cookie (JWT) identifies which developer made the request.
+  </Step>
+  <Step title="Server dispatches a command">
+    `EditorService.openSource()` resolves the absolute path and emits an `OPEN_EDITOR` command over the `/agent` WebSocket namespace to the socket registered under the user's agent name.
+  </Step>
+  <Step title="Agent executes the shell command">
+    `AgentWebsocket` receives the `command` event, delegates to the OS/IDE-specific `CommandAdapter`, and calls `exec()`. The target file opens at the correct line in the developer's IDE.
+  </Step>
+</Steps>
+
+## WebSocket namespaces
+
+Socket.IO runs on the same HTTP server and exposes two namespaces.
+
+### `/agent` namespace
+
+Used exclusively for **server → agent** communication. Each connected agent registers itself under its `agentName`. Only the server sends commands; the agent replies with a `response` event.
+
+- **Auth**: JWT signed with the shared `secret`. The token payload carries `agentName` and `hash`.
+- **Events sent by server**: `command` (`AgentCommand`)
+- **Events sent by agent**: `response` (`WebSocketResponse`)
+
+### `/builds` namespace
+
+Used for **server → browser** build status streaming. Any authenticated browser client can subscribe to receive real-time rebuild and completion events.
+
+- **Auth**: session JWT verified by `AuthService`.
+- **Events**: `rebuild` (`RebuildInfo`), `done` (`BuildResult`), `status` (current `BuildResult` on connection)
+
+## HTTP routes
+
+| Prefix | Auth required | Purpose |
+|--------|---------------|---------|
+| `/auth` | No | Login and token issuance |
+| `/editor` | `sessionGuard` | Read files, save files, open in IDE |
+| `/build` | `sessionGuard` | Query current build status and history |
+
+All routes are mounted by `createRouter()` in `core/server/presentation/http/routes/index.ts`. The `sessionGuard` middleware validates the JWT in the `Authorization` header before allowing access to `/editor` and `/build`.
+
+## JSX runtime replacement and source tracking
+
+Tooltify replaces React's `react/jsx-dev-runtime` module with a custom factory (`createJsxRuntime`) at bundle time. When React renders a component in development mode, Babel/SWC passes the original source location (`fileName`, `lineNumber`, `columnNumber`) to `jsxDEV`. The custom runtime intercepts this and attaches a `ref` callback to the rendered element that sets a `data-source` attribute on the real DOM node.
+
+```typescript
+// Simplified from integrations/shared/source-transformers/react.source-transformer.ts
+props.ref = (el: any) => {
+  if (el && typeof el.setAttribute === "function")
+    el.setAttribute(SOURCE_PROPERTY_NAME, `${relative}:${source.lineNumber ?? 0}`)
+}
+```
+
+This happens at zero runtime cost to your application code — no imports, no wrappers, no HOCs.
+
+<Note>
+  Source injection only activates in development builds. `jsxDEV` is called by Babel/SWC only when `NODE_ENV !== "production"`, so no `data-source` attributes appear in production bundles.
+</Note>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Agent" icon="computer-classic" href="/concepts/agent">
+    How the desktop daemon connects, authenticates, and opens files in your IDE.
+  </Card>
+  <Card title="Server" icon="server" href="/concepts/server">
+    Services, routes, and WebSocket namespaces exposed by `startServer()`.
+  </Card>
+  <Card title="Build tracking" icon="chart-line" href="/concepts/build-tracking">
+    How file changes are attributed to users and streamed to the browser.
+  </Card>
+  <Card title="Rspack integration" icon="bolt" href="/integrations/rspack">
+    How the bundler plugin wires everything together automatically.
+  </Card>
+</CardGroup>

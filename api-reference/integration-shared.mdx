@@ -1,0 +1,213 @@
+---
+title: "@tooltify/integration-shared"
+description: "Shared utilities used by Tooltify bundler integrations. Provides the React JSX runtime factory and the types that integrations extend."
+---
+
+`@tooltify/integration-shared` contains the building blocks used by Tooltify's bundler integrations. It ships two exports paths:
+
+| Export path | Purpose |
+| --- | --- |
+| `@tooltify/integration-shared` | `createReactJsxRuntimeFile()` helper and shared TypeScript types |
+| `@tooltify/integration-shared/source-transformers/react` | `createJsxRuntime()` — the runtime factory that runs in the browser |
+
+<Note>
+  This package is primarily consumed by bundler integrations such as
+  `@tooltify/integration-rspack`. Most applications should not need to import
+  it directly unless you are building a custom integration.
+</Note>
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install @tooltify/integration-shared
+```
+
+```bash yarn
+yarn add @tooltify/integration-shared
+```
+
+```bash pnpm
+pnpm add @tooltify/integration-shared
+```
+
+</CodeGroup>
+
+---
+
+## Main export
+
+### `createReactJsxRuntimeFile(packagesDir, shouldInjectSource?)`
+
+Generates the source code of a virtual module that replaces `react/jsx-dev-runtime` during the build. The generated module imports `createJsxRuntime` from the source-transformer path and re-exports the instrumented `jsxDEV` and `Fragment` symbols.
+
+This function runs at **build time** (in Node.js), whereas the code it produces runs at **runtime** (in the browser).
+
+```typescript
+import { createReactJsxRuntimeFile } from '@tooltify/integration-shared';
+
+const moduleSource: string = createReactJsxRuntimeFile(
+  '/absolute/path/to/packages',
+  (type, props) => typeof type === 'string',
+);
+```
+
+#### Signature
+
+```typescript
+function createReactJsxRuntimeFile(
+  packagesDir: string,
+  shouldInjectSource?: (type: any, props: any) => boolean,
+): string
+```
+
+#### Parameters
+
+<ParamField path="packagesDir" type="string" required>
+  Absolute path to the root directory of your packages. This path is embedded
+  into the generated module source and used at runtime to compute relative
+  source paths for `data-source` attribute values.
+</ParamField>
+
+<ParamField path="shouldInjectSource" type="(type: any, props: any) => boolean">
+  Optional filter function serialized and embedded into the generated module.
+  Controls which JSX elements receive source injection at render time. When
+  omitted, only intrinsic (HTML string) elements are injected.
+</ParamField>
+
+#### Return value
+
+Returns a `string` containing the full source of the virtual `react/jsx-dev-runtime` replacement module. Pass this string directly to your bundler's module-replacement mechanism (e.g., as a `data:text/javascript,...` URL).
+
+---
+
+## Source transformer export
+
+### `createJsxRuntime(options)`
+
+Import from `@tooltify/integration-shared/source-transformers/react`.
+
+A runtime factory that wraps React's `jsxDEV` to inject `data-source` attributes onto DOM elements as they are rendered. The returned `jsxDEV` is a drop-in replacement for the one exported by `react/jsx-dev-runtime`.
+
+This function runs in the **browser** at component render time.
+
+```typescript
+import { createJsxRuntime } from '@tooltify/integration-shared/source-transformers/react';
+
+const { jsxDEV, Fragment } = createJsxRuntime({
+  packagesDir: '/absolute/path/to/packages',
+  shouldInjectSource: (type, props) => typeof type === 'string',
+});
+
+export { jsxDEV, Fragment };
+```
+
+#### Signature
+
+```typescript
+function createJsxRuntime(options: JsxRuntimeOptions): {
+  jsxDEV: (
+    type: any,
+    props: any,
+    key: any,
+    isStaticChildren: boolean,
+    source?: { fileName?: string; lineNumber?: number; columnNumber?: number },
+  ) => ReturnType<typeof jsx | typeof jsxs>;
+  Fragment: typeof Fragment;
+}
+```
+
+#### Parameters
+
+<ParamField path="options" type="JsxRuntimeOptions" required>
+  Configuration for the JSX runtime.
+</ParamField>
+
+<ParamField path="options.packagesDir" type="string" required>
+  Absolute path to the root directory of your packages. Used to strip the
+  absolute prefix from `source.fileName` so that `data-source` attributes
+  contain compact relative paths (e.g., `/my-app/src/Button.tsx:12`).
+</ParamField>
+
+<ParamField path="options.shouldInjectSource" type="(type: any, props: any) => boolean">
+  Optional predicate invoked for every rendered JSX element. When it returns
+  `true`, a `data-source` attribute is set on the resulting DOM node via a
+  `ref` callback.
+
+  When omitted, source attributes are injected only for intrinsic elements
+  (where `typeof type === "string"`).
+</ParamField>
+
+#### Return value
+
+<ResponseField name="jsxDEV" type="function" required>
+  Instrumented replacement for `react/jsx-dev-runtime`'s `jsxDEV`. Accepts the
+  same arguments and delegates to React's `jsx` or `jsxs` internally after
+  optionally attaching a `ref` callback that writes the `data-source` attribute.
+</ResponseField>
+
+<ResponseField name="Fragment" type="typeof Fragment" required>
+  React's `Fragment` symbol, re-exported unchanged for convenience.
+</ResponseField>
+
+---
+
+## Shared types
+
+These types are exported from the main `@tooltify/integration-shared` path and are intended to be extended by bundler integrations.
+
+### `BaseStartOptions`
+
+Base configuration interface for all Tooltify bundler integrations.
+
+```typescript
+import type { BaseStartOptions } from '@tooltify/integration-shared';
+```
+
+<ParamField path="publicUrl" type="string">
+  Override the URL injected into the HTML page as `window.__TOOLTIFY_URL__`.
+  Use when the Tooltify server is behind a reverse proxy or in a remote
+  development environment where the default `http://localhost:{port}` URL is
+  not reachable from the browser.
+</ParamField>
+
+<ParamField path="react" type="ReactOptions">
+  React-specific instrumentation options. See `ReactOptions` below.
+</ParamField>
+
+### `ReactOptions`
+
+Options for the React JSX runtime instrumentation layer.
+
+```typescript
+import type { ReactOptions } from '@tooltify/integration-shared';
+```
+
+<ParamField path="shouldInjectSource" type="(type: any, props: any) => boolean">
+  Predicate that controls which JSX elements receive `data-source` attribute
+  injection. Called at render time with the element `type` and `props`.
+
+  - Return `true` to inject source metadata.
+  - Return `false` (or omit the function) to skip injection.
+
+  Intrinsic elements (`typeof type === "string"`) are always injected when this
+  option is not provided.
+</ParamField>
+
+### `JsxRuntimeOptions`
+
+Options accepted by `createJsxRuntime()`.
+
+```typescript
+import type { JsxRuntimeOptions } from '@tooltify/integration-shared/source-transformers/react';
+```
+
+<ParamField path="packagesDir" type="string" required>
+  Root directory for source path resolution. Paths outside this directory are
+  ignored and receive no `data-source` injection.
+</ParamField>
+
+<ParamField path="shouldInjectSource" type="(type: any, props: any) => boolean">
+  Injection filter. See `ReactOptions.shouldInjectSource` for full semantics.
+</ParamField>

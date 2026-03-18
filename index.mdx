@@ -1,97 +1,76 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Tooltify"
+description: "A developer tooling SDK that injects a live in-browser devtools panel into React apps — enabling real-time source-file editing, build tracking, and one-click open-in-editor."
 ---
 
-## Setting up
-
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Tooltify running in your React app in under 5 minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Learn how to configure `tooltify.config.json` for your project.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Rspack Integration" icon="plug" href="/integrations/rspack">
+    Add the Tooltify plugin to your Rspack bundler setup.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="CLI Reference" icon="terminal" href="/cli/commands">
+    Manage the local agent daemon with the `tooltify` CLI.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is Tooltify?
 
-Everything you need to create world-class documentation.
+Tooltify bridges the gap between your running React app and your source code. It injects a lightweight devtools panel directly into your browser during development, allowing you to:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+- **Inspect any element** and jump to its source file instantly
+- **Edit source files** in a Monaco editor without leaving the browser
+- **Track builds** in real time — see which user triggered each rebuild and whether it succeeded
+- **Open files in your IDE** via a WebSocket-connected local agent
 
-## Need inspiration?
+## How it works
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Start the local server">
+    The `@tooltify/core` server runs alongside your dev server, exposing an HTTP API and WebSocket namespaces for agent communication and build events.
+  </Step>
+  <Step title="Inject the client bundle">
+    The bundler plugin (e.g. `rspackTooltify()`) embeds the Tooltify client script into your HTML and replaces React's JSX dev runtime with one that tags every DOM element with its source location.
+  </Step>
+  <Step title="Connect the desktop agent">
+    Run `tooltify` from your terminal to start the local agent daemon. It connects back to the server over WebSockets and executes IDE-open commands on your machine.
+  </Step>
+  <Step title="Develop faster">
+    Click any element in the browser, see its source path, edit it inline, and watch the build tracker report who changed what — all without switching windows.
+  </Step>
+</Steps>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="In-browser source editor" icon="file-pen">
+    Monaco-powered editor embedded in the devtools panel. Read and save source files directly from the browser.
+  </Card>
+  <Card title="Build tracking" icon="chart-line">
+    Tracks every rebuild, attributes file changes to the author who saved them, and streams status events to all connected clients.
+  </Card>
+  <Card title="Open in IDE" icon="arrow-up-right-from-square">
+    Cross-platform agent supports VS Code, Cursor, and other editors on Linux, macOS, and Windows.
+  </Card>
+  <Card title="JWT authentication" icon="lock">
+    Session-based JWT auth protects the HTTP API and WebSocket connections so the devtools panel is only accessible to registered team members.
+  </Card>
+  <Card title="Rspack integration" icon="bolt">
+    First-class Rspack plugin — zero manual wiring. The plugin handles server startup, HTML injection, and build event forwarding automatically.
+  </Card>
+  <Card title="Source injection" icon="code">
+    Replaces React's JSX dev runtime to attach `data-source` attributes on every rendered DOM element, enabling precise source-to-element mapping.
+  </Card>
+</CardGroup>
+
+## Packages
+
+| Package | Description |
+|---|---|
+| `@tooltify/core` | Core server, CLI binary, and client bundle |
+| `@tooltify/integration-rspack` | Rspack bundler plugin |
+| `@tooltify/integration-shared` | Shared JSX runtime transformer and helpers |

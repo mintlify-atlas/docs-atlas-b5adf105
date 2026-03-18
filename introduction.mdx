@@ -1,0 +1,47 @@
+---
+title: "Introduction"
+description: "Tooltify is an in-browser devtools layer for React applications that lets your team inspect, edit, and debug running code without leaving the browser."
+---
+
+## What is Tooltify?
+
+Tooltify is a developer tooling system that embeds a devtools panel directly into your React application during development. Instead of switching between your editor, terminal, and browser DevTools, Tooltify gives you a unified interface for inspecting component state, monitoring builds, and modifying source files — all from inside the running app.
+
+It is designed for teams working on large React codebases where the feedback loop between editing code and seeing results slows down iteration. Tooltify shortens that loop by surfacing the right information at the right time, in the browser where you are already working.
+
+## How it works
+
+Tooltify has three main components that work together:
+
+**Server** — A Node.js process (started via the `tooltify` CLI) that watches your source directory, exposes a WebSocket API, and handles authentication. The server is the central hub that the client and desktop agent connect to.
+
+**Client bundle** — A JavaScript bundle injected into your app's `index.html` at build time by the bundler plugin. It renders the Tooltify devtools panel inside the browser and communicates with the server over WebSocket.
+
+**Desktop agent** — A background daemon process managed by the `tooltify` CLI. The agent runs on your machine and coordinates server lifecycle, credentials, and build tracking. You start, stop, and inspect it through the interactive CLI.
+
+## Packages
+
+Tooltify is distributed as three npm packages:
+
+| Package | Description |
+| --- | --- |
+| `@tooltify/core` | Core server, CLI (`tooltify` bin), and client bundle |
+| `@tooltify/integration-rspack` | Rspack bundler plugin (`rspackTooltify`) |
+| `@tooltify/integration-shared` | Shared types and utilities used by integrations |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install Tooltify, configure your project, and run the agent in minutes.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/configuration">
+    Full reference for every field in `tooltify.config.json`.
+  </Card>
+  <Card title="CLI" icon="terminal" href="/cli">
+    Commands for managing the Tooltify agent: start, stop, status, logs.
+  </Card>
+  <Card title="Integrations" icon="plug" href="/integrations">
+    Connect Tooltify to your bundler. Currently supports Rspack.
+  </Card>
+</CardGroup>

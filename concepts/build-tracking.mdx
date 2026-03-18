@@ -1,0 +1,196 @@
+---
+title: "Build tracking"
+description: "How Tooltify tracks rebuilds, attributes file changes to users, and streams status events to the browser."
+---
+
+`BuildTrackerService` is the component that bridges your bundler and the browser. It listens for file-change and build-completion signals from the bundler plugin, resolves each changed file to the developer who saved it, and emits real-time events over the `/builds` WebSocket namespace.
+
+## State machine
+
+The service maintains an internal `state` field that transitions as builds progress:
+
+```
+idle ──onFilesChanged()──► rebuilding ──onBuildDone(hasErrors=false)──► success
+                                      ──onBuildDone(hasErrors=true) ──► error
+```
+
+When the server starts, state is `"idle"` and `last` is initialised to a successful empty result so that newly connected browser clients receive a valid initial status.
+
+## Interfaces
+
+### `RebuildInfo`
+
+Carried by the `rebuild` event. Describes the file change that triggered the current build.
+
+```typescript
+// core/server/services/build-tracker.service.ts
+export interface RebuildInfo {
+  user: string
+  file: string
+  errors?: string[]
+  errorFiles?: { file: string; user: string }[]
+}
+```
+
+<ResponseField name="user" type="string" required>
+  Username of the developer whose save triggered the rebuild. `"unknown"` if the author cannot be resolved.
+</ResponseField>
+
+<ResponseField name="file" type="string" required>
+  Absolute path of the file that changed.
+</ResponseField>
+
+<ResponseField name="errors" type="string[]">
+  Compiler error messages from the previous failed build, if any.
+</ResponseField>
+
+<ResponseField name="errorFiles" type="{ file: string; user: string }[]">
+  Files that were in a failed state at the time of this rebuild, paired with the user who last saved each one.
+</ResponseField>
+
+### `BuildResult`
+
+Extends `RebuildInfo`. Carried by the `done` event and returned by `getStatus()`.
+
+```typescript
+export interface BuildResult extends RebuildInfo {
+  ok: boolean
+  hash?: string
+}
+```
+
+<ResponseField name="ok" type="boolean" required>
+  `true` if the build completed without errors, `false` otherwise.
+</ResponseField>
+
+<ResponseField name="hash" type="string">
+  The build hash produced by the bundler (e.g. Rspack's `stats.hash`). Used as a lookup key for `getRebuildInfo(hash)`.
+</ResponseField>
+
+## Methods
+
+### `onFilesChanged(files: string[])`
+
+Call this when the bundler detects that source files have changed (i.e. at the start of a rebuild).
+
+```typescript
+buildTracker.onFilesChanged(files: string[]): void
+```
+
+For each file in the array, the service calls `UserTrackerService.resolveFileAuthor(file)` to determine who saved it. It then emits a `rebuild` event with a `RebuildInfo` object to all clients connected to the `/builds` namespace.
+
+<Note>
+  When multiple files change in a single watch cycle, the service records each one individually in the `errorFiles` accumulator, but `pending` (and therefore the emitted `RebuildInfo`) reflects the **last** file in the array. This means the `rebuild` event's `file` and `user` fields describe the final changed file.
+</Note>
+
+### `onBuildDone(hash, hasErrors, errors?)`
+
+Call this when the bundler finishes compiling.
+
+```typescript
+buildTracker.onBuildDone(
+  hash: string,
+  hasErrors: boolean,
+  errors: string[] = [],
+): void
+```
+
+<ParamField path="hash" type="string" required>
+  Unique identifier for this build. Use the bundler's own hash (e.g. `stats.hash`) or generate one if unavailable.
+</ParamField>
+
+<ParamField path="hasErrors" type="boolean" required>
+  Pass `true` if the build produced any errors, `false` for a clean build.
+</ParamField>
+
+<ParamField path="errors" type="string[]" default="[]">
+  Compiler error message strings. Only populated when `hasErrors` is `true`.
+</ParamField>
+
+When `hasErrors` is `false`, the internal `errorFiles` map is cleared so stale error attribution does not bleed into future builds.
+
+The service stores the last 20 builds in an in-memory history map (keyed by `hash`). Older entries are evicted automatically.
+
+### `getStatus()`
+
+Returns the most recent `BuildResult` synchronously. Used by the `/build/status` HTTP route to serve polling clients and to seed newly connected WebSocket clients.
+
+```typescript
+buildTracker.getStatus(): BuildResult
+```
+
+### `getRebuildInfo(hash: string)`
+
+Looks up stored `RebuildInfo` by build hash. Returns `{ user: "unknown", file: "" }` if the hash is not in history.
+
+```typescript
+buildTracker.getRebuildInfo(hash: string): RebuildInfo
+```
+
+## `UserTrackerService` integration
+
+`BuildTrackerService` depends on `UserTrackerService` to resolve file paths to usernames. `UserTrackerService` maintains two write registries:
+
+- **`recentWrites`** — populated by OS-level file write monitoring (via `fatrace` on Linux, currently disabled pending configuration).
+- **`webWrites`** — populated explicitly by the `/editor/save` route.
+
+`resolveFileAuthor(file)` checks `webWrites` first, then `recentWrites`, and falls back to `"unknown"`. After resolving, the entry is deleted from whichever map it came from, so each file change is attributed only once.
+
+### `registerWebWrite(fullPath, user)`
+
+Call this before a file is saved from the browser editor so that the subsequent `onFilesChanged()` call can attribute the rebuild to the correct user.
+
+```typescript
+userTracker.registerWebWrite(fullPath: string, user: string): void
+```
+
+The `/editor/save` route calls this automatically when a session user saves a file, so you do not need to call it manually if you use the standard HTTP API.
+
+## Rspack integration
+
+The `rspackTooltify()` plugin wires `BuildTrackerService` into Rspack's compiler hooks automatically:
+
+```typescript
+// integrations/rspack/index.ts
+
+// Called at the start of each incremental build:
+compiler.hooks.watchRun.tap("tooltify", (comp) => {
+  const changed: string[] = comp.modifiedFiles ? [...comp.modifiedFiles] : []
+  if (changed.length === 0) return
+  buildTracker.onFilesChanged(changed)
+})
+
+// Called when compilation finishes:
+compiler.hooks.done.tap("tooltify", (stats) => {
+  const hash = stats.hash || Date.now().toString(36)
+  const errors = stats.hasErrors()
+    ? stats.compilation.errors.map((e: any) => e.message)
+    : []
+  buildTracker.onBuildDone(hash, stats.hasErrors(), errors)
+})
+```
+
+If you are using a different bundler, implement the same two calls in that bundler's equivalent hooks.
+
+<Tip>
+  When `comp.modifiedFiles` is empty (e.g. on the initial full build), `onFilesChanged()` is skipped entirely. Only incremental watch-mode rebuilds trigger attribution.
+</Tip>
+
+## WebSocket events reference
+
+All events are emitted on the `/builds` Socket.IO namespace.
+
+| Event | Payload | When emitted |
+|-------|---------|---------------|
+| `status` | `BuildResult` | Immediately on client connection |
+| `rebuild` | `RebuildInfo` | When `onFilesChanged()` is called |
+| `done` | `BuildResult` | When `onBuildDone()` is called |
+
+<CardGroup cols={2}>
+  <Card title="Server" icon="server" href="/concepts/server">
+    See how `BuildTrackerService` is composed inside `startServer()`.
+  </Card>
+  <Card title="Rspack integration" icon="bolt" href="/integrations/rspack">
+    Full reference for the Rspack plugin that drives build events.
+  </Card>
+</CardGroup>

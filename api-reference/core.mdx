@@ -1,0 +1,206 @@
+---
+title: "@tooltify/core"
+description: "The core Tooltify package. Starts the development server, exposes the client bundle path, and ships the tooltify CLI binary."
+---
+
+`@tooltify/core` is the foundation of Tooltify. It starts the WebSocket and HTTP server that powers the Tooltify developer overlay, exposes the compiled client bundle for manual serving, and ships the `tooltify` CLI.
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install @tooltify/core
+```
+
+```bash yarn
+yarn add @tooltify/core
+```
+
+```bash pnpm
+pnpm add @tooltify/core
+```
+
+</CodeGroup>
+
+---
+
+## CLI binary
+
+This package ships a `tooltify` binary that is available after installation.
+
+```bash
+npx tooltify
+```
+
+The binary entry point is `./dist/cli.js` and is registered under the `tooltify` bin name in `package.json`.
+
+---
+
+## `startServer()`
+
+Starts the Tooltify HTTP and WebSocket server. Reads configuration from `tooltify.config.json` in the current working directory.
+
+```typescript
+import { startServer } from '@tooltify/core';
+
+const { config, port, buildTracker, agentWs, cleanDeps } = startServer();
+```
+
+<Info>
+  `startServer()` takes no parameters. All configuration is loaded from
+  `tooltify.config.json` at `process.cwd()`.
+</Info>
+
+### Return value
+
+<ResponseField name="config" type="TooltifyConfig" required>
+  The resolved configuration object loaded from `tooltify.config.json`.
+
+  <Expandable title="TooltifyConfig properties">
+    <ResponseField name="port" type="number" required>
+      Port number the server listens on. Defaults to `4100` if not specified in
+      the config file.
+    </ResponseField>
+
+    <ResponseField name="host" type="string" required>
+      Hostname for the server.
+    </ResponseField>
+
+    <ResponseField name="packagesDir" type="string" required>
+      Root directory used to resolve source file paths for component tracking.
+      Relative paths in the config file are resolved to an absolute path from
+      `process.cwd()`.
+    </ResponseField>
+
+    <ResponseField name="auth" type="object" required>
+      Authentication configuration.
+
+      <Expandable title="auth properties">
+        <ResponseField name="auth.salt" type="string" required>
+          Salt used for credential hashing.
+        </ResponseField>
+
+        <ResponseField name="auth.secret" type="string" required>
+          Secret key used for signing JWT tokens.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="port" type="number" required>
+  The port number the server is listening on. Identical to `config.port`.
+</ResponseField>
+
+<ResponseField name="buildTracker" type="BuildTrackerService" required>
+  Service instance that tracks incremental build events. Bundler integrations
+  call `buildTracker.onFilesChanged()` and `buildTracker.onBuildDone()` to
+  propagate build state to connected clients.
+
+  <Expandable title="BuildTrackerService methods">
+    <ResponseField name="onFilesChanged" type="(files: string[]) => void">
+      Notify the tracker that a set of files has changed and a rebuild is
+      starting. Emits a `rebuild` event to all connected build sockets.
+    </ResponseField>
+
+    <ResponseField name="onBuildDone" type="(hash: string, hasErrors: boolean, errors?: string[]) => void">
+      Notify the tracker that a build has completed. Emits a `done` event with
+      the resulting `BuildResult` to all connected build sockets.
+    </ResponseField>
+
+    <ResponseField name="getStatus" type="() => BuildResult">
+      Returns the most recent `BuildResult`.
+    </ResponseField>
+
+    <ResponseField name="getRebuildInfo" type="(hash: string) => RebuildInfo">
+      Returns the `RebuildInfo` recorded for a given build hash, or
+      `{ user: "unknown", file: "" }` if not found.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="agentWs" type="AgentSocketServer" required>
+  The Socket.IO namespace used for agent (IDE extension) connections.
+</ResponseField>
+
+<ResponseField name="cleanDeps" type="() => void" required>
+  Shuts down background services started by the server (for example, the file
+  author tracker). Call this when the build process exits to avoid resource
+  leaks.
+</ResponseField>
+
+---
+
+## `CLIENT_BUNDLE`
+
+```typescript
+import { CLIENT_BUNDLE } from '@tooltify/core';
+```
+
+An absolute path (string) pointing to the compiled Tooltify client IIFE bundle:
+
+```
+<package-root>/dist/client/client.iife.js
+```
+
+Use this constant when you need to serve or embed the client script manually — for example, in a custom bundler integration that reads the file and emits it as a build asset.
+
+```typescript
+import fs from 'fs';
+import { CLIENT_BUNDLE } from '@tooltify/core';
+
+// Read the client bundle and embed it into your own build output
+const clientCode = fs.readFileSync(CLIENT_BUNDLE);
+```
+
+<Note>
+  Bundler integrations like `@tooltify/integration-rspack` use `CLIENT_BUNDLE`
+  internally to inject the client script into the build output. You only need
+  to use this constant directly when writing a custom integration.
+</Note>
+
+---
+
+## `TooltifyConfig` interface
+
+The shape of `tooltify.config.json`. All fields are required unless noted.
+
+<ParamField path="port" type="number">
+  Port the Tooltify server listens on. Defaults to `4100` when omitted.
+</ParamField>
+
+<ParamField path="host" type="string" required>
+  Hostname for the server (e.g. `"localhost"`).
+</ParamField>
+
+<ParamField path="packagesDir" type="string" required>
+  Directory Tooltify uses as the root when resolving component source paths.
+  Relative paths are resolved from `process.cwd()` at startup.
+</ParamField>
+
+<ParamField path="auth" type="object" required>
+  Authentication settings.
+</ParamField>
+
+<ParamField path="auth.salt" type="string" required>
+  Salt value used for credential hashing.
+</ParamField>
+
+<ParamField path="auth.secret" type="string" required>
+  Secret used to sign and verify JWT tokens issued by the server.
+</ParamField>
+
+### Example `tooltify.config.json`
+
+```json
+{
+  "port": 4100,
+  "host": "localhost",
+  "packagesDir": "./packages",
+  "auth": {
+    "salt": "change-me-salt",
+    "secret": "change-me-secret"
+  }
+}
+```

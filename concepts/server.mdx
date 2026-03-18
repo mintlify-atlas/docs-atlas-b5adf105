@@ -1,0 +1,170 @@
+---
+title: "Server"
+description: "The Express + Socket.IO server that coordinates authentication, file editing, and build tracking."
+---
+
+The Tooltify server is a standard Node.js HTTP server built with **Express** and **Socket.IO**. It exposes HTTP routes for authentication and file operations, WebSocket namespaces for agent communication and build status streaming, and a set of services that power each feature.
+
+You start the server by calling `startServer()`, which is what bundler plugins like `rspackTooltify()` do automatically.
+
+## `startServer()`
+
+```typescript
+// core/server/index.ts
+export function startServer(): {
+  config: TooltifyConfig
+  port: number
+  buildTracker: BuildTrackerService
+  agentWs: AgentSocketServer
+  cleanDeps(): void
+}
+```
+
+### Return value
+
+<ResponseField name="config" type="TooltifyConfig" required>
+  The resolved configuration loaded from `tooltify.config.json`. Contains settings such as `port`, `packagesDir`, and `auth`.
+</ResponseField>
+
+<ResponseField name="port" type="number" required>
+  The port the HTTP server is listening on. Matches `config.port`.
+</ResponseField>
+
+<ResponseField name="buildTracker" type="BuildTrackerService" required>
+  The build tracker instance. Call `buildTracker.onFilesChanged()` and `buildTracker.onBuildDone()` from your bundler plugin to drive build status events.
+
+  <Expandable title="BuildTrackerService methods">
+    <ResponseField name="onFilesChanged" type="(files: string[]) => void">
+      Notify the tracker that a set of files changed. Emits a `rebuild` event to all `/builds` subscribers.
+    </ResponseField>
+    <ResponseField name="onBuildDone" type="(hash: string, hasErrors: boolean, errors?: string[]) => void">
+      Notify the tracker that a build completed. Emits a `done` event with a `BuildResult`.
+    </ResponseField>
+    <ResponseField name="getStatus" type="() => BuildResult">
+      Returns the last known build result. Useful for polling or initialising UI state.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="agentWs" type="AgentSocketServer" required>
+  The agent WebSocket server. Exposes `send(agentName, command)` to dispatch commands to a connected agent.
+</ResponseField>
+
+<ResponseField name="cleanDeps" type="() => void" required>
+  Tears down background processes started by the server (currently shuts down `UserTrackerService`). Call this when your bundler's compiler shuts down.
+</ResponseField>
+
+## Services
+
+`startServer()` composes five services internally. You interact with `buildTracker` and `agentWs` directly; the rest are internal.
+
+### `AuthService`
+
+Handles credential verification and JWT issuance for browser sessions.
+
+- `login(user, password)` — verifies credentials against `VaultService`, returns a signed JWT (24-hour expiry).
+- `jwtVerify(token)` — validates a token and checks the fingerprint (`fp`) against the vault.
+- Tokens are signed with HS256 using the `auth.secret` from config.
+
+### `VaultService`
+
+An in-memory key/value store that maps `agentName → { hash, fp }`. Agents register their hash on WebSocket connection; the entry is deleted on disconnect. `AuthService` cross-checks the `fp` field when verifying session tokens to detect revoked sessions.
+
+### `EditorService`
+
+Provides file operations scoped to `config.packagesDir`.
+
+- `read(relPath)` — reads a file and returns its content, extension, and relative path.
+- `save(relPath, content, sessionUser?)` — writes content to a file and returns bytes written.
+- `openSource(source, username)` — resolves a source path (with optional `:line` suffix) to an absolute path and dispatches an `OPEN_EDITOR` command to the named agent via `AgentSocketServer.send()`.
+
+<Warning>
+  All paths are validated against `config.packagesDir` with a trailing separator check. Any attempt to traverse outside that directory is rejected with a 403 error.
+</Warning>
+
+### `UserTrackerService`
+
+Maps file paths to the developer who last saved them. Used by `BuildTrackerService` to attribute rebuilds to a user.
+
+- `registerWebWrite(fullPath, user)` — called by the `/editor` save route to record that a specific user saved a file from the browser.
+- `resolveFileAuthor(file)` — returns the username for a given path, then clears the entry.
+- `start()` / `shutdown()` — lifecycle methods.
+
+### `BuildTrackerService`
+
+Tracks rebuild state and streams events to the `/builds` WebSocket namespace. See [Build tracking](/concepts/build-tracking) for full documentation.
+
+## HTTP routes
+
+All routes are mounted under the root path by `createRouter()`.
+
+```typescript
+// core/server/presentation/http/routes/index.ts
+export function createRouter(deps: RouterDeps): express.Router
+```
+
+The router applies `express.json({ limit: "10mb" })` globally and uses `sessionGuard` middleware to protect the `/editor` and `/build` prefixes.
+
+| Route prefix | Auth | Description |
+|--------------|------|-------------|
+| `POST /auth/login` | None | Exchange credentials for a JWT session token |
+| `GET /auth/me` | Optional | Returns current session user if logged in |
+| `GET /editor/read` | `sessionGuard` | Read a source file |
+| `POST /editor/save` | `sessionGuard` | Write content to a source file |
+| `POST /editor/open` | `sessionGuard` | Open a file in the developer's IDE via the agent |
+| `GET /build/status` | `sessionGuard` | Return the last `BuildResult` |
+| `GET /build/info/:hash` | `sessionGuard` | Return `RebuildInfo` for a specific build hash |
+
+## WebSocket namespaces
+
+Socket.IO is initialised by `initSocket()`, which attaches to the same HTTP server as Express.
+
+```typescript
+// core/server/presentation/ws/index.ts
+function initSocket(
+  httpServer: Server,
+  auth: AuthService,
+  vault: VaultService,
+  secret: string,
+): { io: SocketServer; agentWs: AgentSocketServer; buildsNs: Namespace }
+```
+
+### `/agent` namespace
+
+- **Direction**: server → agent (commands), agent → server (responses)
+- **Auth middleware**: `jwt.verify(token, secret)` on the handshake `auth.token`
+- **On connect**: agent is stored in an in-memory `Map<agentName, Socket>`; its `hash` is written to `VaultService`
+- **On disconnect**: entries are removed from both the map and the vault
+
+### `/builds` namespace
+
+- **Direction**: server → browser (events)
+- **Auth middleware**: `AuthService.jwtVerify()` on the handshake `auth.token`
+- **On connect**: the current `BuildResult` is immediately emitted as a `status` event so the client can initialise its UI without waiting for the next build
+
+## CORS configuration
+
+Both Express and Socket.IO are configured with permissive CORS settings suitable for local development:
+
+```typescript
+// Express
+app.use(cors({ origin: true, credentials: true }))
+
+// Socket.IO
+new SocketServer(httpServer, {
+  cors: { origin: true, credentials: true },
+})
+```
+
+<Tip>
+  `origin: true` reflects the request's `Origin` header back, which allows any origin while still supporting `credentials: true`. Restrict `origin` to specific domains before deploying to a shared or staging environment.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    See how the server fits into the full system.
+  </Card>
+  <Card title="Build tracking" icon="chart-line" href="/concepts/build-tracking">
+    Deep dive into `BuildTrackerService` and its event model.
+  </Card>
+</CardGroup>

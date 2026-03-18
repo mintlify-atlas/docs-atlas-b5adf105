@@ -1,0 +1,121 @@
+---
+title: "Configuration"
+description: "Reference for every field in tooltify.config.json, the configuration file that controls the Tooltify server."
+---
+
+Tooltify reads its configuration from a `tooltify.config.json` file in the root of your project (the directory where you run the `tooltify` CLI). The file must be valid JSON.
+
+```json tooltify.config.json
+{
+  "packagesDir": "./src",
+  "port": 4100,
+  "host": "localhost",
+  "auth": {
+    "secret": "your-jwt-secret",
+    "salt": "your-password-salt"
+  }
+}
+```
+
+<Warning>
+  Tooltify will not start if `tooltify.config.json` is missing or cannot be parsed. Make sure the file exists before running `tooltify`.
+</Warning>
+
+## Fields
+
+<ParamField path="packagesDir" type="string" required>
+  Path to the source directory that Tooltify monitors for file changes. Relative paths are resolved from the project root (the directory containing `tooltify.config.json`).
+
+  For a standard project layout this is typically `"./src"`. For a monorepo where you want to watch multiple packages, point this at the directory that contains them (for example, `"./packages"`).
+
+  ```json
+  {
+    "packagesDir": "./src"
+  }
+  ```
+</ParamField>
+
+<ParamField path="port" type="number" default="4100">
+  TCP port the Tooltify server listens on. The client bundle connects to this port over WebSocket.
+
+  Change this if port `4100` is already in use on your machine. Make sure the `publicUrl` option in your bundler plugin (if set) points to the same port.
+
+  ```json
+  {
+    "port": 4101
+  }
+  ```
+</ParamField>
+
+<ParamField path="host" type="string">
+  Hostname or IP address the Tooltify server binds to. When omitted, the server binds to all interfaces.
+
+  Set this to `"localhost"` to restrict access to the local machine, or to a specific IP address when running on a remote development host.
+
+  ```json
+  {
+    "host": "localhost"
+  }
+  ```
+</ParamField>
+
+<ParamField path="auth" type="object" required>
+  Authentication settings used to secure the Tooltify server. Both child fields are required.
+
+  <Expandable title="auth properties">
+    <ParamField path="auth.secret" type="string" required>
+      Secret key used to sign and verify JSON Web Tokens (JWTs). The server issues a JWT to authenticated clients; subsequent requests are verified against this secret.
+
+      Use a long, random string. Changing this value invalidates all existing tokens and requires clients to re-authenticate.
+
+      ```json
+      {
+        "auth": {
+          "secret": "a-long-random-string"
+        }
+      }
+      ```
+    </ParamField>
+
+    <ParamField path="auth.salt" type="string" required>
+      Salt value used when hashing the agent password. The CLI combines this salt with the password you register to produce a stored hash.
+
+      Changing this value invalidates the stored password hash and requires you to reset your password via the CLI.
+
+      ```json
+      {
+        "auth": {
+          "salt": "a-different-random-string"
+        }
+      }
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Complete example
+
+This is the configuration used by the Tooltify playground:
+
+```json tooltify.config.json
+{
+  "packagesDir": "./src",
+  "port": 4101,
+  "auth": {
+    "secret": "dev-secret-key",
+    "salt": "dev-salt-key"
+  }
+}
+```
+
+<Note>
+  The `host` field is optional. When omitted, the server binds to all available network interfaces.
+</Note>
+
+## Configuration and the bundler plugin
+
+The Tooltify server reads `tooltify.config.json` directly. The bundler plugin (`rspackTooltify`) reads the same config file at build time to determine the server URL it injects into your app.
+
+If you change `port` in `tooltify.config.json`, restart both the Tooltify agent and your dev server so the new port is picked up everywhere.
+
+See the [Quickstart](/quickstart) for a full walkthrough of setting up configuration alongside the bundler plugin.

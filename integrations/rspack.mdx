@@ -1,0 +1,244 @@
+---
+title: "Rspack"
+description: "Use the Tooltify Rspack plugin to inject source-location attributes into your React app during development."
+---
+
+The `@tooltify/integration-rspack` package provides an Rspack plugin that wires Tooltify into your build pipeline. When the plugin is applied it:
+
+- Starts the Tooltify dev server and connects it to your build process
+- Replaces `react/jsx-dev-runtime` with a custom transformer that attaches `data-source` attributes to DOM elements at render time
+- Emits `tooltify.js` as a compiled asset and injects it into `index.html`
+- Sets `window.__TOOLTIFY_URL__` so the client bundle knows where the Tooltify server is listening
+- Forwards file-change and build-done events to the internal `BuildTrackerService` so the UI stays in sync with your edits
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install @tooltify/integration-rspack
+```
+
+```bash yarn
+yarn add @tooltify/integration-rspack
+```
+
+```bash pnpm
+pnpm add @tooltify/integration-rspack
+```
+
+</CodeGroup>
+
+<Note>
+  The plugin requires `@rspack/core ^1.7.8` as a peer dependency. Make sure it is already installed in your project.
+</Note>
+
+## Setup
+
+<Steps>
+  <Step title="Add tooltify.config.json to your project root">
+    Create a `tooltify.config.json` file at the root of your project. Tooltify reads this file at startup to determine the source directory, port, and auth settings.
+
+    ```json tooltify.config.json
+    {
+      "packagesDir": "./src",
+      "port": 4101,
+      "auth": {
+        "secret": "dev-secret-key",
+        "salt": "dev-salt-key"
+      }
+    }
+    ```
+
+    <Note>
+      `tooltify.config.json` must be present in the project root. The plugin will fail to start the Tooltify server if this file is missing.
+    </Note>
+  </Step>
+
+  <Step title="Add the plugin to rspack.config.ts">
+    Import `rspackTooltify` and add it to the `plugins` array. You must also add `HtmlRspackPlugin` so the plugin has an `index.html` asset to inject scripts into.
+
+    ```typescript rspack.config.ts
+    import { HtmlRspackPlugin } from "@rspack/core";
+    import { rspackTooltify } from "@tooltify/integration-rspack";
+    import { createRequire } from "module";
+
+    const require = createRequire(import.meta.url);
+
+    export default {
+      entry: "./src/index.tsx",
+
+      output: {
+        publicPath: "/"
+      },
+
+      module: {
+        rules: [
+          {
+            test: /\.tsx?$/,
+            loader: "builtin:swc-loader",
+            options: {
+              jsc: {
+                parser: {
+                  syntax: "typescript",
+                  tsx: true
+                },
+                transform: {
+                  react: {
+                    runtime: "automatic"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+
+      resolve: {
+        extensions: [".tsx", ".ts", ".js"],
+        alias: {
+          "react": require.resolve("react")
+        }
+      },
+
+      plugins: [
+        new HtmlRspackPlugin({ template: "./index.html" }),
+        rspackTooltify({
+          react: {
+            shouldInjectSource: (type) => {
+              return typeof type === "object" && typeof type?.target === "string"
+            },
+          }
+        })
+      ],
+
+      devServer: {
+        port: 5173,
+        historyApiFallback: true,
+      }
+    };
+    ```
+
+    The `react.runtime: "automatic"` setting in SWC is required. It tells the compiler to emit `jsxDEV` calls via `react/jsx-dev-runtime`, which is the import the plugin intercepts.
+  </Step>
+
+  <Step title="Start your dev server">
+    Run your normal Rspack dev server command. Tooltify starts automatically when Rspack applies the plugin — no separate process is needed.
+
+    ```bash
+    npx rsbuild dev
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+`rspackTooltify` accepts an optional `RspackStartOptions` object.
+
+```typescript
+export interface RspackStartOptions {
+  publicUrl?: string
+  react?: {
+    shouldInjectSource?: (type: any, props: any) => boolean
+  }
+}
+```
+
+<ParamField path="publicUrl" type="string">
+  Override the Tooltify server URL injected into the page as `window.__TOOLTIFY_URL__`. By default the plugin uses `http://localhost:<port>` where `<port>` comes from `tooltify.config.json`.
+
+  Set this when your dev server sits behind a proxy and the browser must reach Tooltify through a different origin or path.
+
+  ```typescript
+  rspackTooltify({
+    publicUrl: "https://my-tunnel.example.com"
+  })
+  ```
+</ParamField>
+
+<ParamField path="react.shouldInjectSource" type="(type: any, props: any) => boolean">
+  A predicate that controls which React elements receive `data-source` attribute injection. The plugin calls this function for every non-host (non-string) element type during rendering.
+
+  When the predicate returns `true` the element's DOM node gets a `data-source` attribute containing its source file path and line number. When it returns `false` (or is omitted for a component type) the element is left untouched.
+
+  Native DOM elements (string types such as `"div"` or `"span"`) are **always** injected regardless of this callback.
+
+  **Signature**
+
+  ```typescript
+  shouldInjectSource?: (type: any, props: any) => boolean
+  ```
+
+  | Parameter | Description |
+  | --------- | ----------- |
+  | `type`    | The React element type — a component function, class, or object (e.g. a styled-component). |
+  | `props`   | The props passed to that element at render time. |
+</ParamField>
+
+## The `shouldInjectSource` callback
+
+By default Tooltify only injects source attributes into host elements (plain HTML tags). If you also want source data on styled-components or other component-object types, pass `shouldInjectSource` to opt them in.
+
+The playground config targets styled-components by checking for the `target` property that every styled-component carries:
+
+```typescript
+rspackTooltify({
+  react: {
+    shouldInjectSource: (type) => {
+      return typeof type === "object" && typeof type?.target === "string"
+    },
+  }
+})
+```
+
+This returns `true` for any element whose type is an object with a string `target` — the signature of a styled-component — and `false` for everything else. You can write any predicate that matches the component types relevant to your project.
+
+<Tip>
+  Keep `shouldInjectSource` lightweight. It runs inside the JSX transform for every rendered element, so expensive checks will affect dev-server performance.
+</Tip>
+
+## How script injection works
+
+During the `processAssets` compilation phase the plugin:
+
+1. Reads the pre-built `tooltify.js` client bundle from `@tooltify/core` and emits it as a Rspack asset, making it available at `/tooltify.js`.
+2. Finds the `index.html` asset produced by `HtmlRspackPlugin` and injects two tags before `</head>`:
+
+```html
+<script>window.__TOOLTIFY_URL__ = "http://localhost:4101";</script>
+<script src="/tooltify.js"></script>
+```
+
+The `window.__TOOLTIFY_URL__` global tells the client bundle which server to connect to. If you pass `publicUrl` to the plugin, that value is used instead of the default `http://localhost:<port>`.
+
+## Proxy setup
+
+If you route traffic through a dev-server proxy, set `publicUrl` to the proxied URL so the browser sends requests to the correct origin:
+
+```typescript rspack.config.ts
+rspackTooltify({
+  publicUrl: "http://localhost:5173/tooltify"
+})
+```
+
+Then add the corresponding proxy rule to `devServer`:
+
+```typescript rspack.config.ts
+devServer: {
+  port: 5173,
+  historyApiFallback: true,
+  proxy: [
+    {
+      context: ["/tooltify"],
+      target: "http://localhost:4101",
+      changeOrigin: true,
+      pathRewrite: { "^/tooltify": "" },
+      ws: true,
+    },
+  ],
+}
+```
+
+<Warning>
+  The plugin is intended for development builds only. Do not include it in production builds — it starts a local server and modifies your HTML output.
+</Warning>

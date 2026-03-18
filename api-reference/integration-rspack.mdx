@@ -1,0 +1,167 @@
+---
+title: "@tooltify/integration-rspack"
+description: "Rspack plugin that starts the Tooltify server, injects the client overlay, and replaces the React JSX runtime to enable source injection during development."
+---
+
+`@tooltify/integration-rspack` is the official Tooltify plugin for [Rspack](https://rspack.dev). It wires together the Tooltify server, the client overlay script, and the React JSX runtime replacement in a single Rspack plugin.
+
+## Installation
+
+<CodeGroup>
+
+```bash npm
+npm install @tooltify/integration-rspack
+```
+
+```bash yarn
+yarn add @tooltify/integration-rspack
+```
+
+```bash pnpm
+pnpm add @tooltify/integration-rspack
+```
+
+</CodeGroup>
+
+<Note>
+  `@rspack/core ^1.7.8` is a peer dependency and must be installed separately.
+</Note>
+
+---
+
+## `rspackTooltify(options?)`
+
+Returns an `RspackPluginInstance` that:
+
+1. Starts the Tooltify server by calling `startServer()` from `@tooltify/core`.
+2. Replaces `react/jsx-dev-runtime` with an instrumented version that attaches source file metadata to DOM elements at render time.
+3. Emits the Tooltify client bundle (`tooltify.js`) as a build asset.
+4. Injects a `<script>` tag into `index.html` that sets `window.__TOOLTIFY_URL__` and loads `tooltify.js`.
+5. Forwards file-change and build-done events from Rspack to the Tooltify build tracker.
+
+```typescript
+import { rspackTooltify } from '@tooltify/integration-rspack';
+
+export default {
+  plugins: [
+    rspackTooltify({
+      publicUrl: 'https://tooltify.internal.example.com',
+      react: {
+        shouldInjectSource: (type, props) => typeof type === 'string',
+      },
+    }),
+  ],
+};
+```
+
+### Signature
+
+```typescript
+function rspackTooltify(options?: RspackStartOptions): RspackPluginInstance
+```
+
+### Parameters
+
+<ParamField path="options" type="RspackStartOptions">
+  Optional configuration. When omitted, the plugin uses defaults derived from
+  `tooltify.config.json`.
+</ParamField>
+
+<ParamField path="options.publicUrl" type="string">
+  Override the server URL that is injected into `index.html` as
+  `window.__TOOLTIFY_URL__`. Use this when Tooltify runs behind a reverse proxy
+  or in a remote development environment where `http://localhost:{port}` is not
+  reachable from the browser.
+
+  Defaults to `http://localhost:{port}` where `port` is read from
+  `tooltify.config.json`.
+</ParamField>
+
+<ParamField path="options.react" type="ReactOptions">
+  Options for the React JSX runtime instrumentation.
+</ParamField>
+
+<ParamField path="options.react.shouldInjectSource" type="(type: any, props: any) => boolean">
+  A predicate called for every JSX element at render time. When it returns
+  `true`, the element's DOM node receives a `data-source` attribute with the
+  relative file path and line number.
+
+  When omitted, source attributes are injected for all intrinsic (HTML string)
+  elements. Composite components (functions/classes) are skipped by default
+  unless this callback explicitly returns `true` for them.
+
+  ```typescript
+  // Only inject source for native DOM elements
+  shouldInjectSource: (type, props) => typeof type === 'string'
+
+  // Inject for native elements and any component whose displayName starts with "Ui"
+  shouldInjectSource: (type, props) =>
+    typeof type === 'string' ||
+    (typeof type === 'function' && type.displayName?.startsWith('Ui'))
+  ```
+</ParamField>
+
+---
+
+## `RspackStartOptions` interface
+
+`RspackStartOptions` extends `BaseStartOptions` from `@tooltify/integration-shared`. All fields are optional.
+
+<ParamField path="publicUrl" type="string">
+  Override the public URL injected into the HTML page for the Tooltify server.
+  Useful for reverse-proxy or remote dev environments.
+</ParamField>
+
+<ParamField path="react" type="ReactOptions">
+  React-specific instrumentation options.
+</ParamField>
+
+<ParamField path="react.shouldInjectSource" type="(type: any, props: any) => boolean">
+  Filter function controlling which components receive `data-source` attribute
+  injection. Receives the element `type` (string for HTML, function/class for
+  components) and the element `props`.
+</ParamField>
+
+---
+
+## Usage example
+
+```typescript
+// rspack.config.ts
+import { defineConfig } from '@rspack/cli';
+import { rspackTooltify } from '@tooltify/integration-rspack';
+
+export default defineConfig({
+  entry: './src/index.tsx',
+  plugins: [
+    rspackTooltify(),
+  ],
+});
+```
+
+```typescript
+// rspack.config.ts — with all options
+import { defineConfig } from '@rspack/cli';
+import { rspackTooltify } from '@tooltify/integration-rspack';
+
+export default defineConfig({
+  entry: './src/index.tsx',
+  plugins: [
+    rspackTooltify({
+      // Use a custom URL if running behind a reverse proxy
+      publicUrl: 'https://dev.example.internal',
+
+      react: {
+        // Limit source injection to native HTML elements only
+        shouldInjectSource: (type, _props) => typeof type === 'string',
+      },
+    }),
+  ],
+});
+```
+
+<Info>
+  The plugin only modifies development builds. It is safe to include
+  unconditionally — Rspack's watch/dev-server mode is required for the
+  file-change tracking to emit events.
+</Info>

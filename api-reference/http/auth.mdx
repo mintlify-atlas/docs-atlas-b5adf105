@@ -1,0 +1,193 @@
+---
+title: "Auth API"
+description: "Endpoints for authentication, session management, and user listing under the /auth base path."
+---
+
+The Auth API handles user login, session validation, and logout. Most endpoints under `/auth` are publicly accessible. Session state is maintained via an HttpOnly cookie set on login.
+
+## Session cookie
+
+A successful login sets a `tooltify_session` cookie on the response. All protected endpoints read this cookie to identify the caller.
+
+| Attribute    | Value          |
+| ------------ | -------------- |
+| Name         | `tooltify_session` |
+| HttpOnly     | Yes            |
+| Secure       | Yes            |
+| SameSite     | `None`         |
+| Max-Age      | 86400 (24 h)   |
+| Path         | `/`            |
+
+<Note>
+The cookie value is a signed JWT. Do not parse or store it manually — the server validates it on every request.
+</Note>
+
+---
+
+## GET /auth/ping
+
+Health check. Returns a static response with no authentication required.
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  Always `"pong"`.
+</ResponseField>
+
+```json 200
+{
+  "message": "pong"
+}
+```
+
+---
+
+## GET /auth/users
+
+Returns the list of registered usernames. No authentication required.
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"Users retrieved"`
+</ResponseField>
+
+<ResponseField name="data" type="string[]" required>
+  Array of registered usernames.
+</ResponseField>
+
+```json 200
+{
+  "message": "Users retrieved",
+  "data": ["alice", "bob"]
+}
+```
+
+---
+
+## POST /auth/login
+
+Validates credentials and issues a session cookie.
+
+### Request body
+
+<ParamField body="user" type="string" required>
+  The username to authenticate as.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password.
+</ParamField>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"Login successful"`
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="token" type="string" required>
+      Signed JWT. Also set as the `tooltify_session` cookie.
+    </ResponseField>
+    <ResponseField name="user" type="string" required>
+      The authenticated username.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+The response also sets `Set-Cookie: tooltify_session=<token>; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=86400`.
+
+```bash curl example
+curl -X POST https://your-tooltify-host/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"user": "alice", "password": "s3cr3t"}' \
+  -c cookies.txt
+```
+
+```json 200
+{
+  "message": "Login successful",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": "alice"
+  }
+}
+```
+
+### Error codes
+
+| Status | Code                   | Reason                                 |
+| ------ | ---------------------- | -------------------------------------- |
+| 400    | `MISSING_CREDENTIALS`  | `user` or `password` field is absent.  |
+| 401    | `INVALID_CREDENTIALS`  | Password does not match.               |
+| 404    | `USER_NOT_FOUND`       | No account exists for the given user.  |
+
+---
+
+## GET /auth/session
+
+Checks whether the current request carries a valid session cookie and returns the associated username.
+
+<Warning>
+This endpoint reads the `tooltify_session` cookie. Without a valid cookie the request returns `401`.
+</Warning>
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"Session active"`
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="user" type="string" required>
+      Username of the authenticated session owner.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```bash curl example
+curl https://your-tooltify-host/auth/session \
+  -b cookies.txt
+```
+
+```json 200
+{
+  "message": "Session active",
+  "data": {
+    "user": "alice"
+  }
+}
+```
+
+### Error codes
+
+| Status | Code         | Reason                                         |
+| ------ | ------------ | ---------------------------------------------- |
+| 401    | `NO_SESSION` | Cookie absent, expired, or signature invalid.  |
+
+---
+
+## GET /auth/logout
+
+Expires the session cookie, ending the user's session. No authentication check is performed — the endpoint is safe to call even without an active session.
+
+### Response
+
+<ResponseField name="message" type="string" required>
+  `"Logged out"`
+</ResponseField>
+
+The response sets `Set-Cookie: tooltify_session=; Path=/; HttpOnly; Max-Age=0`, which instructs the browser to delete the cookie immediately.
+
+```bash curl example
+curl https://your-tooltify-host/auth/logout \
+  -b cookies.txt -c cookies.txt
+```
+
+```json 200
+{
+  "message": "Logged out"
+}
+```
