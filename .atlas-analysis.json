@@ -1,0 +1,89 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Tooltify",
+  "projectDescription": "Tooltify is a developer tooling SDK that injects a live in-browser devtools panel into React apps, enabling real-time source-file editing and build tracking via a local server, CLI agent manager, and bundler integrations.",
+  "theme": "palm",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "configuration"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/agent",
+              "concepts/server",
+              "concepts/build-tracking"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/overview",
+              "cli/commands"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/rspack"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Packages",
+            "pages": [
+              "api-reference/core",
+              "api-reference/integration-rspack",
+              "api-reference/integration-shared"
+            ]
+          },
+          {
+            "group": "HTTP API",
+            "pages": [
+              "api-reference/http/auth",
+              "api-reference/http/editor",
+              "api-reference/http/build"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "In-browser devtools panel injected into React apps via bundler plugin",
+    "Real-time source file editing through a Monaco editor UI",
+    "Build tracking that attributes file changes to specific users",
+    "CLI agent manager (start, stop, status, logs, reset-password)",
+    "WebSocket-based agent that opens source files in the local IDE",
+    "Rspack bundler integration via rspackTooltify() plugin",
+    "JWT-based authentication with session cookies",
+    "Cross-platform IDE open-in-editor support (Linux, macOS, Windows)"
+  ],
+  "publicApiSurface": [
+    "startServer() — @tooltify/core",
+    "CLIENT_BUNDLE — @tooltify/core",
+    "rspackTooltify(options?: RspackStartOptions) — @tooltify/integration-rspack",
+    "createJsxRuntime(options: JsxRuntimeOptions) — @tooltify/integration-shared (source-transformers/react)",
+    "createReactJsxRuntimeFile(packagesDir, shouldInjectSource?) — @tooltify/integration-shared",
+    "tooltify CLI — start | stop | status | logs | reset-password",
+    "TooltifyConfig — tooltify.config.json schema",
+    "BaseStartOptions / ReactOptions / RspackStartOptions — integration option types"
+  ]
+}
